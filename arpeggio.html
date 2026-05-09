@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Arpeggio Piano — Do Fa Sol Fa Do</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      background: #0e0e0e;
+      font-family: monospace;
+      color: #aaa;
+    }
+    p { font-size: 0.85rem; letter-spacing: 0.2em; text-transform: uppercase; }
+    button {
+      padding: 0.75rem 2.2rem;
+      border: 1px solid #444;
+      background: transparent;
+      color: #ccc;
+      font-family: monospace;
+      font-size: 0.85rem;
+      letter-spacing: 0.15em;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    button:hover { border-color: #aaa; color: #fff; }
+    #status { font-size: 0.7rem; color: #555; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <p>Do &nbsp;·&nbsp; Fa &nbsp;·&nbsp; Sol &nbsp;·&nbsp; Fa &nbsp;·&nbsp; Do</p>
+  <button id="btn-play">▶ Escuchar</button>
+  <button id="btn-download">↓ Descargar WAV</button>
+  <p id="status"></p>
+
+  <script>
+    // ── Notas en Hz ──────────────────────────────────────────────────────
+    // Do mayor:  C4  E4  G4  C5
+    // Fa mayor:  F4  A4  C5  F5
+    // Sol mayor: G4  B4  D5  G5
+    const CHORDS = {
+      C: [261.63, 329.63, 392.00, 523.25],
+      F: [349.23, 440.00, 523.25, 698.46],
+      G: [392.00, 493.88, 587.33, 783.99],
+    };
+
+    const PROGRESSION = ['C', 'F', 'G', 'F', 'C'];
+
+    const BPM       = 76;
+    const BEAT      = 60 / BPM;          // duración de un negra en segundos
+    const NOTE_DUR  = BEAT / 2;          // corchea (8th note)
+    const NOTES_PER_CHORD = 8;           // 8 corcheas = 1 compás de 4/4
+    const CHORD_DUR = NOTE_DUR * NOTES_PER_CHORD;
+    const FINAL_HOLD = BEAT * 3;         // nota final sostenida
+
+    // Patrón de arpeggio por acorde: subida y bajada parcial
+    // índices dentro del array de 4 notas del acorde
+    const PATTERN = [0, 1, 2, 3, 2, 1, 0, 1];
+
+    // ── Síntesis de una nota tipo piano ──────────────────────────────────
+    function renderNote(ctx, dest, freq, when, dur, vol) {
+      const env = ctx.createGain();
+      env.connect(dest);
+      env.gain.setValueAtTime(0, when);
+      env.gain.linearRampToValueAtTime(vol, when + 0.010);
+      env.gain.exponentialRampToValueAtTime(vol * 0.25, when + 0.35);
+      env.gain.exponentialRampToValueAtTime(0.0001, when + dur * 0.90);
+
+      // Oscilador principal (triángulo) + armónico suave (seno 2x)
+      [[freq, 'triangle', 1.0], [freq * 2.001, 'sine', 0.12]].forEach(([f, type, gain]) => {
+        const g = ctx.createGain();
+        g.gain.value = gain;
+        g.connect(env);
+        const o = ctx.createOscillator();
+        o.type = type;
+        o.frequency.value = f;
+        o.connect(g);
+        o.start(when);
+        o.stop(when + dur);
+      });
+    }
+
+    // ── Construye la secuencia completa ──────────────────────────────────
+    function buildSequence(ctx, dest, startTime) {
+      let t = startTime;
+      PROGRESSION.forEach((chordName, ci) => {
+        const chord = CHORDS[chordName];
+        const isLast = ci === PROGRESSION.length - 1;
+        PATTERN.forEach((noteIdx, ni) => {
+          const isLastNote = isLast && ni === PATTERN.length - 1;
+          const dur = isLastNote ? NOTE_DUR + FINAL_HOLD : NOTE_DUR;
+          renderNote(ctx, dest, chord[noteIdx], t, dur, 0.52);
+          t += NOTE_DUR;
+        });
+      });
+      return t + FINAL_HOLD;
+    }
+
+    // ── Reproducción en tiempo real ───────────────────────────────────────
+    let liveCtx = null;
+
+    document.getElementById('btn-play').addEventListener('click', async () => {
+      if (liveCtx) { liveCtx.close(); liveCtx = null; }
+      liveCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (liveCtx.state === 'suspended') await liveCtx.resume();
+      buildSequence(liveCtx, liveCtx.destination, liveCtx.currentTime + 0.05);
+      document.getElementById('status').textContent = 'reproduciendo…';
+      const totalMs = (PROGRESSION.length * CHORD_DUR + FINAL_HOLD + 0.5) * 1000;
+      setTimeout(() => { document.getElementById('status').textContent = ''; }, totalMs);
+    });
+
+    // ── Exportar WAV ──────────────────────────────────────────────────────
+    document.getElementById('btn-download').addEventListener('click', async () => {
+      const status = document.getElementById('status');
+      status.textContent = 'generando…';
+
+      const totalDur = PROGRESSION.length * CHORD_DUR + FINAL_HOLD + 1.0;
+      const SR = 44100;
+      const offline = new OfflineAudioContext(2, Math.ceil(totalDur * SR), SR);
+
+      buildSequence(offline, offline.destination, 0.05);
+
+      const rendered = await offline.startRendering();
+
+      // Codificar a WAV 16-bit PCM
+      const wav = encodeWAV(rendered);
+      const blob = new Blob([wav], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'arpeggio-loki.wav';
+      a.click();
+      URL.revokeObjectURL(url);
+      status.textContent = 'descargado';
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    });
+
+    function encodeWAV(buffer) {
+      const numCh = buffer.numberOfChannels;
+      const sampleRate = buffer.sampleRate;
+      const numSamples = buffer.length;
+      const bytesPerSample = 2;
+      const blockAlign = numCh * bytesPerSample;
+      const byteRate = sampleRate * blockAlign;
+      const dataSize = numSamples * blockAlign;
+      const fileSize = 44 + dataSize;
+
+      const ab = new ArrayBuffer(fileSize);
+      const view = new DataView(ab);
+
+      function str(off, s) { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); }
+      function u32(off, v) { view.setUint32(off, v, true); }
+      function u16(off, v) { view.setUint16(off, v, true); }
+
+      str(0, 'RIFF'); u32(4, fileSize - 8); str(8, 'WAVE');
+      str(12, 'fmt '); u32(16, 16); u16(20, 1); u16(22, numCh);
+      u32(24, sampleRate); u32(28, byteRate); u16(32, blockAlign); u16(34, 16);
+      str(36, 'data'); u32(40, dataSize);
+
+      // Intercalar canales y convertir float → int16
+      const channels = [];
+      for (let c = 0; c < numCh; c++) channels.push(buffer.getChannelData(c));
+      let offset = 44;
+      for (let i = 0; i < numSamples; i++) {
+        for (let c = 0; c < numCh; c++) {
+          const s = Math.max(-1, Math.min(1, channels[c][i]));
+          view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+          offset += 2;
+        }
+      }
+      return ab;
+    }
+  </script>
+</body>
+</html>

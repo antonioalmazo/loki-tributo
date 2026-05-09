@@ -1,0 +1,10 @@
+2026-05-09 15:57:44,019 - mcp_cad_server - INFO - 启动 CAD MCP 服务器
+2026-05-09 15:57:44,022 - mcp_cad_server - INFO - 启动 CAD MCP 服务器
+2026-05-09 15:57:44,022 - mcp_cad_server - INFO - 配置文件加载成功
+2026-05-09 15:57:44,023 - cad_controller - INFO - CAD控制器已初始化
+2026-05-09 15:57:44,023 - nlp_processor - INFO - 自然语言处理器已初始化
+2026-05-09 15:57:44,023 - mcp_cad_server - INFO - CAD服务已初始化
+2026-05-09 15:57:44,030 - mcp_cad_server - INFO - 服务器正在使用 stdio 传输运行
+2026-05-09 15:57:44,036 - mcp.server.lowlevel.server - INFO - Processing request of type ListToolsRequest
+2026-05-09 15:57:44,038 - mcp.server.lowlevel.server - INFO - Processing request of type ListPromptsRequest
+2026-05-09 15:57:44,040 - mcp.server.lowlevel.server - INFO - Processing request of type ListResourcesRequest

@@ -579,110 +579,70 @@
     });
 
     // ── PIANO TRISTE (Web Audio API) ──────────────────────────────────────
-    // Melodía en La menor — lenta, sin repetición obvia
-    // Cada entrada: [semitono relativo a A3=220Hz, duración en beats, volumen 0-1]
-    const SEMITONE = Math.pow(2, 1/12);
+    const ST = Math.pow(2, 1/12);
     const A3 = 220;
-    const note = n => A3 * Math.pow(SEMITONE, n); // n semítonos desde A3
-
-    // Escala usada: A menor natural
-    // A3=0, B3=2, C4=3, D4=5, E4=7, F4=8, G4=10, A4=12
+    const hz = n => A3 * Math.pow(ST, n);
     const BPM = 46;
-    const beat = 60 / BPM;
+    const B = 60 / BPM; // segundos por beat
 
+    // La menor: A3=0, B3=2, C4=3, D4=5, E4=7, F4=8, G4=10, A4=12
     const melody = [
-      // frase 1 — bajada lenta
-      [note(12), 2.5, 0.52],  // A4
-      [note(10), 1,   0.40],  // G4
-      [note(8),  1.5, 0.44],  // F4
-      [note(7),  2,   0.50],  // E4
-      [note(5),  1,   0.38],  // D4
-      [note(3),  3,   0.54],  // C4
-      // frase 2 — subida
-      [note(2),  1,   0.38],  // B3
-      [note(3),  1,   0.40],  // C4
-      [note(5),  1.5, 0.44],  // D4
-      [note(7),  2,   0.50],  // E4
-      [note(8),  1,   0.40],  // F4
-      [note(10), 1.5, 0.44],  // G4
-      [note(12), 3,   0.55],  // A4
-      // frase 3 — interior melancólico
-      [note(8),  1,   0.40],  // F4
-      [note(7),  1.5, 0.45],  // E4
-      [note(5),  1,   0.38],  // D4
-      [note(3),  2,   0.50],  // C4
-      [note(2),  1,   0.36],  // B3
-      [note(0),  4,   0.56],  // A3 — reposo largo
-      // frase 4 — resolución
-      [note(3),  1,   0.40],  // C4
-      [note(5),  1,   0.42],  // D4
-      [note(7),  2,   0.48],  // E4
-      [note(5),  1,   0.38],  // D4
-      [note(3),  1.5, 0.44],  // C4
-      [note(2),  1,   0.36],  // B3
-      [note(0),  5,   0.58],  // A3 — final
+      [hz(12),2.5,0.50],[hz(10),1,0.38],[hz(8),1.5,0.42],[hz(7),2,0.48],
+      [hz(5),1,0.36],[hz(3),3,0.52],
+      [hz(2),1,0.36],[hz(3),1,0.38],[hz(5),1.5,0.42],[hz(7),2,0.48],
+      [hz(8),1,0.38],[hz(10),1.5,0.42],[hz(12),3,0.52],
+      [hz(8),1,0.38],[hz(7),1.5,0.43],[hz(5),1,0.36],[hz(3),2,0.48],
+      [hz(2),1,0.34],[hz(0),4,0.54],
+      [hz(3),1,0.38],[hz(5),1,0.40],[hz(7),2,0.46],[hz(5),1,0.36],
+      [hz(3),1.5,0.42],[hz(2),1,0.34],[hz(0),5,0.56],
     ];
 
-    let audioCtx = null;
-    let masterGain = null;
+    const totalBeats = melody.reduce((s,n)=>s+n[1],0);
+    const totalMs = totalBeats * B * 1000;
+
+    let ctx = null;
+    let master = null;
     let playing = false;
     let loopTimer = null;
-    let startTime = 0;
 
-    function pianoNote(ctx, freq, when, duration, vol) {
-      const g = ctx.createGain();
-      g.connect(masterGain);
+    function buildCtx() {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain();
+      master.gain.value = 0.6;
+      master.connect(ctx.destination);
+    }
 
-      // Dos osciladores para riqueza tímbrica
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      osc1.type = 'triangle';
-      osc2.type = 'sine';
-      osc1.frequency.value = freq;
-      osc2.frequency.value = freq * 2.001; // ligera octava alta para brillo
+    function pianoNote(freq, when, dur, vol) {
+      const env = ctx.createGain();
+      env.connect(master);
+      env.gain.setValueAtTime(0, when);
+      env.gain.linearRampToValueAtTime(vol, when + 0.012);
+      env.gain.exponentialRampToValueAtTime(vol * 0.3, when + 0.5);
+      env.gain.exponentialRampToValueAtTime(0.0001, when + dur * B * 0.92);
 
-      const g2 = ctx.createGain();
-      g2.gain.value = 0.18; // armónico más suave
-      osc2.connect(g2);
-      g2.connect(g);
-      osc1.connect(g);
-
-      // Envolvente: ataque rápido, decaída lenta (tipo piano)
-      g.gain.setValueAtTime(0, when);
-      g.gain.linearRampToValueAtTime(vol, when + 0.015);
-      g.gain.exponentialRampToValueAtTime(vol * 0.35, when + 0.4);
-      g.gain.exponentialRampToValueAtTime(0.0001, when + duration * beat * 0.95);
-
-      osc1.start(when); osc1.stop(when + duration * beat);
-      osc2.start(when); osc2.stop(when + duration * beat);
+      [freq, freq * 2.001].forEach((f, i) => {
+        const o = ctx.createOscillator();
+        o.type = i === 0 ? 'triangle' : 'sine';
+        o.frequency.value = f;
+        const g = ctx.createGain();
+        g.gain.value = i === 0 ? 1 : 0.15;
+        o.connect(g); g.connect(env);
+        o.start(when); o.stop(when + dur * B);
+      });
     }
 
     function scheduleLoop() {
       if (!playing) return;
-      let t = audioCtx.currentTime + 0.05;
-      let totalDur = melody.reduce((s, n) => s + n[1] * beat, 0);
-      melody.forEach(([freq, dur, vol]) => {
-        pianoNote(audioCtx, freq, t, dur, vol);
-        t += dur * beat;
-      });
-      loopTimer = setTimeout(scheduleLoop, totalDur * 1000 - 400);
+      let t = ctx.currentTime + 0.05;
+      melody.forEach(([f, d, v]) => { pianoNote(f, t, d, v); t += d * B; });
+      loopTimer = setTimeout(scheduleLoop, totalMs - 300);
     }
 
-    function startPiano() {
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        masterGain = audioCtx.createGain();
-        masterGain.gain.value = 0.55;
-        // Reverb simple con ConvolverNode aproximado vía delay
-        const delay = audioCtx.createDelay(2);
-        delay.delayTime.value = 0.08;
-        const delayGain = audioCtx.createGain();
-        delayGain.gain.value = 0.22;
-        masterGain.connect(delay);
-        delay.connect(delayGain);
-        delayGain.connect(audioCtx.destination);
-        masterGain.connect(audioCtx.destination);
-      }
+    async function startPiano() {
+      if (!ctx) buildCtx();
+      if (ctx.state === 'suspended') await ctx.resume();
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.setValueAtTime(0.6, ctx.currentTime);
       playing = true;
       scheduleLoop();
     }
@@ -690,11 +650,9 @@
     function stopPiano() {
       playing = false;
       clearTimeout(loopTimer);
-      if (masterGain) {
-        masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.5);
-        setTimeout(() => {
-          masterGain.gain.value = 0.55;
-        }, 2000);
+      if (master) {
+        master.gain.cancelScheduledValues(ctx.currentTime);
+        master.gain.setTargetAtTime(0, ctx.currentTime, 0.6);
       }
     }
 
@@ -702,9 +660,9 @@
     const iconMuted = document.getElementById('icon-muted');
     const iconPlaying = document.getElementById('icon-playing');
 
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       if (!playing) {
-        startPiano();
+        await startPiano();
         iconMuted.style.display = 'none';
         iconPlaying.style.display = 'block';
       } else {

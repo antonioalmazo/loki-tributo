@@ -660,8 +660,23 @@
     const iconMuted = document.getElementById('icon-muted');
     const iconPlaying = document.getElementById('icon-playing');
 
-    btn.addEventListener('click', async () => {
+    // Arranca con la primera interacción del usuario (clic, scroll, toque)
+    let started = false;
+    async function tryAutoStart() {
+      if (started) return;
+      started = true;
+      await startPiano();
+      iconMuted.style.display = 'none';
+      iconPlaying.style.display = 'block';
+    }
+    ['click','scroll','touchstart','keydown'].forEach(ev =>
+      window.addEventListener(ev, tryAutoStart, { once: true, passive: true })
+    );
+
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
       if (!playing) {
+        started = true;
         await startPiano();
         iconMuted.style.display = 'none';
         iconPlaying.style.display = 'block';
@@ -669,6 +684,11 @@
         stopPiano();
         iconMuted.style.display = 'block';
         iconPlaying.style.display = 'none';
+        // Permitir re-arrancar con próxima interacción
+        started = false;
+        ['click','scroll','touchstart','keydown'].forEach(ev =>
+          window.addEventListener(ev, tryAutoStart, { once: true, passive: true })
+        );
       }
     });
   </script>

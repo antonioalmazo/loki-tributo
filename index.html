@@ -578,117 +578,73 @@
       observer.observe(el);
     });
 
-    // ── PIANO TRISTE (Web Audio API) ──────────────────────────────────────
-    const ST = Math.pow(2, 1/12);
-    const A3 = 220;
-    const hz = n => A3 * Math.pow(ST, n);
-    const BPM = 46;
-    const B = 60 / BPM; // segundos por beat
-
-    // La menor: A3=0, B3=2, C4=3, D4=5, E4=7, F4=8, G4=10, A4=12
-    const melody = [
-      [hz(12),2.5,0.50],[hz(10),1,0.38],[hz(8),1.5,0.42],[hz(7),2,0.48],
-      [hz(5),1,0.36],[hz(3),3,0.52],
-      [hz(2),1,0.36],[hz(3),1,0.38],[hz(5),1.5,0.42],[hz(7),2,0.48],
-      [hz(8),1,0.38],[hz(10),1.5,0.42],[hz(12),3,0.52],
-      [hz(8),1,0.38],[hz(7),1.5,0.43],[hz(5),1,0.36],[hz(3),2,0.48],
-      [hz(2),1,0.34],[hz(0),4,0.54],
-      [hz(3),1,0.38],[hz(5),1,0.40],[hz(7),2,0.46],[hz(5),1,0.36],
-      [hz(3),1.5,0.42],[hz(2),1,0.34],[hz(0),5,0.56],
-    ];
-
-    const totalBeats = melody.reduce((s,n)=>s+n[1],0);
-    const totalMs = totalBeats * B * 1000;
-
-    let ctx = null;
-    let master = null;
-    let playing = false;
-    let loopTimer = null;
-
-    function buildCtx() {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      master = ctx.createGain();
-      master.gain.value = 0.6;
-      master.connect(ctx.destination);
-    }
-
-    function pianoNote(freq, when, dur, vol) {
-      const env = ctx.createGain();
-      env.connect(master);
-      env.gain.setValueAtTime(0, when);
-      env.gain.linearRampToValueAtTime(vol, when + 0.012);
-      env.gain.exponentialRampToValueAtTime(vol * 0.3, when + 0.5);
-      env.gain.exponentialRampToValueAtTime(0.0001, when + dur * B * 0.92);
-
-      [freq, freq * 2.001].forEach((f, i) => {
-        const o = ctx.createOscillator();
-        o.type = i === 0 ? 'triangle' : 'sine';
-        o.frequency.value = f;
-        const g = ctx.createGain();
-        g.gain.value = i === 0 ? 1 : 0.15;
-        o.connect(g); g.connect(env);
-        o.start(when); o.stop(when + dur * B);
-      });
-    }
-
-    function scheduleLoop() {
-      if (!playing) return;
-      let t = ctx.currentTime + 0.05;
-      melody.forEach(([f, d, v]) => { pianoNote(f, t, d, v); t += d * B; });
-      loopTimer = setTimeout(scheduleLoop, totalMs - 300);
-    }
-
-    async function startPiano() {
-      if (!ctx) buildCtx();
-      if (ctx.state === 'suspended') await ctx.resume();
-      master.gain.cancelScheduledValues(ctx.currentTime);
-      master.gain.setValueAtTime(0.6, ctx.currentTime);
-      playing = true;
-      scheduleLoop();
-    }
-
-    function stopPiano() {
-      playing = false;
-      clearTimeout(loopTimer);
-      if (master) {
-        master.gain.cancelScheduledValues(ctx.currentTime);
-        master.gain.setTargetAtTime(0, ctx.currentTime, 0.6);
-      }
-    }
-
+    // ── YOUTUBE: El Indio — Diomedes Díaz ────────────────────────────────
     const btn = document.getElementById('btn-audio');
     const iconMuted = document.getElementById('icon-muted');
     const iconPlaying = document.getElementById('icon-playing');
 
-    // Arranca con la primera interacción del usuario (clic, scroll, toque)
+    let ytPlayer = null;
+    let playing = false;
+    let ytReady = false;
+
+    // Contenedor invisible para el iframe de YouTube
+    const ytDiv = document.createElement('div');
+    ytDiv.id = 'yt-player';
+    ytDiv.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;bottom:0;left:0;';
+    document.body.appendChild(ytDiv);
+
+    // Carga la API de YouTube de forma asíncrona
+    const ytScript = document.createElement('script');
+    ytScript.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(ytScript);
+
+    window.onYouTubeIframeAPIReady = function () {
+      ytPlayer = new YT.Player('yt-player', {
+        videoId: '2Xy3ARoeyqQ',
+        playerVars: { autoplay: 0, loop: 1, playlist: '2Xy3ARoeyqQ', controls: 0 },
+        events: {
+          onReady: () => { ytReady = true; },
+          onStateChange: (e) => {
+            if (e.data === YT.PlayerState.PLAYING) {
+              playing = true;
+              iconMuted.style.display = 'none';
+              iconPlaying.style.display = 'block';
+            } else if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) {
+              playing = false;
+              iconMuted.style.display = 'block';
+              iconPlaying.style.display = 'none';
+            }
+          }
+        }
+      });
+    };
+
+    function doPlay() {
+      if (ytReady && ytPlayer) {
+        ytPlayer.setVolume(80);
+        ytPlayer.playVideo();
+      }
+    }
+
+    // Arranca con la primera interacción del usuario
     let started = false;
-    async function tryAutoStart() {
+    function tryAutoStart() {
       if (started) return;
       started = true;
-      await startPiano();
-      iconMuted.style.display = 'none';
-      iconPlaying.style.display = 'block';
+      doPlay();
     }
     ['click','scroll','touchstart','keydown'].forEach(ev =>
       window.addEventListener(ev, tryAutoStart, { once: true, passive: true })
     );
 
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (!ytReady || !ytPlayer) return;
       if (!playing) {
         started = true;
-        await startPiano();
-        iconMuted.style.display = 'none';
-        iconPlaying.style.display = 'block';
+        doPlay();
       } else {
-        stopPiano();
-        iconMuted.style.display = 'block';
-        iconPlaying.style.display = 'none';
-        // Permitir re-arrancar con próxima interacción
-        started = false;
-        ['click','scroll','touchstart','keydown'].forEach(ev =>
-          window.addEventListener(ev, tryAutoStart, { once: true, passive: true })
-        );
+        ytPlayer.pauseVideo();
       }
     });
   </script>
